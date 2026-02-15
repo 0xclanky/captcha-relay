@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "description": "Human-in-the-loop CAPTCHA solving via Telegram for AI agents and browser automation",
   "main": "src/index.js",
+  "bin": {
+    "captcha-relay": "src/cli.js"
+  },
   "type": "module",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "lint": "eslint src/"
   },
   "keywords": [
