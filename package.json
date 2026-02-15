@@ -1,0 +1,32 @@
+{
+  "name": "captcha-relay",
+  "version": "0.1.0",
+  "description": "Human-in-the-loop CAPTCHA solving via Telegram for AI agents and browser automation",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "captcha",
+    "telegram",
+    "human-in-the-loop",
+    "browser-automation",
+    "openclaw",
+    "ai-agent"
+  ],
+  "author": "0xclanky",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xclanky/captcha-relay.git"
+  },
+  "dependencies": {
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
