@@ -12,7 +12,7 @@ Solve CAPTCHAs by relaying them to a human via Telegram.
 When a CAPTCHA is detected on a page:
 
 ```bash
-cd {{SKILL_DIR}}/../captcha-relay
+cd /home/clanky/.openclaw/workspace/captcha-relay
 node solve.js --inject
 ```
 
