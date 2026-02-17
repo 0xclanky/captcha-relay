@@ -1,92 +1,88 @@
 ---
 name: captcha-relay
-description: "Human-in-the-loop CAPTCHA solving via token relay. When the browser hits a CAPTCHA (reCAPTCHA v2, hCaptcha, Turnstile), extracts the sitekey, serves a relay page with the real widget, sends the human a link, captures the solved token, and injects it back into the browser via CDP."
+description: "Human-in-the-loop CAPTCHA solving via token relay. When the browser hits a CAPTCHA (reCAPTCHA v2, hCaptcha, Cloudflare Turnstile), extracts the sitekey, serves a relay page with the real CAPTCHA widget, sends the human a solve link (via Telegram or any messaging), captures the token, and injects it back into the browser page via CDP. Triggers on CAPTCHA detection, blocked form submissions, or explicit 'solve captcha' requests. Also supports screenshot-grid fallback for non-token CAPTCHAs."
 ---
 
 # CAPTCHA Relay v2
 
 Solve CAPTCHAs by relaying them to a human via a token relay page.
 
-## How It Works
+## Flow
 
-1. Detects CAPTCHA type + sitekey from the browser page via CDP
-2. Starts a local HTTP server serving the real CAPTCHA widget
-3. Creates a tunnel (localtunnel or cloudflared) for phone access
-4. Human opens URL on phone, solves the CAPTCHA natively
-5. Token POSTed back to relay server
-6. Token injected into the automated browser via CDP
+1. Detect CAPTCHA type + sitekey from browser page via CDP
+2. Start local HTTP server serving the real CAPTCHA widget
+3. Get accessible URL (Tailscale IP, tunnel, or LAN)
+4. Send URL to human (via Telegram message tool or inline button)
+5. Human opens URL on phone/PC, solves CAPTCHA natively
+6. Token POSTed back → injected into automated browser via CDP
 
-## Quick Start
+## Usage
+
+### As CLI
 
 ```bash
-cd /home/clanky/.openclaw/workspace/skills/captcha-relay
-npm install   # ws, sharp
-node index.js
+cd skills/captcha-relay && npm install
+node index.js                          # auto-detect, tunnel, inject
+node index.js --no-tunnel              # Tailscale/LAN — no tunnel needed
+node index.js --no-inject --timeout 180
+node index.js --screenshot             # fallback: screenshot grid overlay
 ```
 
-Outputs JSON events to stdout:
-- `{"event": "ready", "relayUrl": "https://...", ...}` — send this URL to human
-- `{"event": "solved", "token": "...", ...}` — CAPTCHA solved and injected
+Outputs JSON to stdout:
+- `{"event":"ready","relayUrl":"http://..."}` — send this URL to human
+- `{"event":"solved","token":"..."}` — done, token injected
 
-## Options
-
-| Flag | Description |
-|------|-------------|
-| `--no-inject` | Return token without injecting into browser |
-| `--screenshot` | Use screenshot fallback instead of token relay |
-| `--no-tunnel` | Skip tunnel, use local IP only |
-| `--timeout N` | Timeout in seconds (default: 120) |
-| `--cdp-port N` | Chrome DevTools Protocol port (default: 18800) |
-
-## Module API
+### As Module
 
 ```js
 const { solveCaptcha } = require('./index');
-
-const result = await solveCaptcha({
-  cdpPort: 18800,
-  timeout: 120000,
-  inject: true,
-  useTunnel: true,
-});
+const result = await solveCaptcha({ cdpPort: 18800, inject: true, useTunnel: false });
 // result.relayUrl — URL to send to human
-// result.token — solved token
-// result.solved — true
+// result.token — solved CAPTCHA token
 ```
 
-You can also pass `type`, `sitekey`, and `pageUrl` to skip auto-detection.
+Override auto-detection: pass `type`, `sitekey`, `pageUrl` directly.
 
-## Tunneling Options
+### CLI Flags
 
-| Method | Pros | Cons |
-|--------|------|------|
-| **localtunnel** (default) | Free, no install, works anywhere | Splash page on first visit |
-| **cloudflared** | Fast, reliable URLs | Heavy binary, too much for constrained machines |
-| **Tailscale** (recommended for production) | No tunnel needed, always-on, no splash | Requires setup on both devices |
-| **Local IP** (fallback) | No dependencies | LAN only |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-inject` | inject | Return token without injecting into browser |
+| `--screenshot` | token relay | Use screenshot grid fallback |
+| `--no-tunnel` | tunnel | Skip tunnel, use local/Tailscale IP |
+| `--timeout N` | 120 | Timeout in seconds |
+| `--cdp-port N` | 18800 | Chrome DevTools Protocol port |
 
-See `TAILSCALE.md` for Tailscale setup instructions.
+## Network Access
 
-## Token File
+The relay server must be reachable from the human's device.
 
-When a token is received, it's written to `/tmp/captcha-relay-token.txt` for external consumers.
+| Method | Best For |
+|--------|----------|
+| **Tailscale** (recommended) | Always-on, works anywhere, no splash pages. See `TAILSCALE.md` |
+| **localtunnel** (default tunnel) | Quick, free, works anywhere. Has splash page on first visit |
+| **LAN IP** (`--no-tunnel`) | Same WiFi only |
 
-## Tested
+With Tailscale: use `--no-tunnel`. The `getTailscaleIp()` helper auto-detects the 100.x.x.x IP.
 
-- ✅ reCAPTCHA v2 token relay — works with Google's demo site
-- ✅ localtunnel tunneling
-- ⚠️ hCaptcha / Turnstile — should work but not yet tested end-to-end
+## Agent Workflow
+
+When browser automation hits a CAPTCHA:
+
+1. Call `solveCaptcha({ useTunnel: false })` (if Tailscale) or `solveCaptcha()` (with tunnel)
+2. Send `result.relayUrl` to human via `message` tool (Telegram inline button recommended)
+3. Wait — `solveCaptcha` resolves when human completes the CAPTCHA
+4. Token is auto-injected; continue automation
+
+## Supported CAPTCHAs
+
+- **reCAPTCHA v2** — token relay ✅ (tested)
+- **hCaptcha** — token relay (best candidate, no client-side domain check)
+- **Cloudflare Turnstile** — token relay
+- **Other** (sliders, text, etc.) — screenshot grid fallback via `--screenshot`
 
 ## Requirements
 
 - Chrome/Chromium with `--remote-debugging-port=18800`
-- Node.js + `npm install` (ws, sharp)
-- For tunneling: `npx localtunnel` (default) or `cloudflared` binary
-
-## Agent Workflow
-
-1. Detect CAPTCHA during browser automation
-2. Run `solveCaptcha()` or `node index.js`
-3. Send the relay URL to human via Telegram
-4. Wait for solved event
-5. Continue automation
+- Node.js 18+ and `npm install` (deps: ws, sharp)
+- Tailscale (recommended) or internet for tunnel

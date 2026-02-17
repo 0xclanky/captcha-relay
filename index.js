@@ -12,7 +12,7 @@
 
 const { detectCaptcha } = require('./lib/detect');
 const { createRelayServer } = require('./lib/server');
-const { startTunnel, stopTunnel, getLocalIp } = require('./lib/tunnel');
+const { startTunnel, stopTunnel, getLocalIp, getTailscaleIp } = require('./lib/tunnel');
 const { injectToken } = require('./lib/inject');
 const { captureAndAnnotate, injectGridClicks } = require('./fallback/screenshot');
 
@@ -65,8 +65,10 @@ async function solveCaptcha(opts = {}) {
     url = tunnel.url;
     log(`Public URL: ${url}`);
   } else {
-    url = `http://${getLocalIp()}:${relay.port}`;
-    log(`Local URL: ${url}`);
+    const tsIp = getTailscaleIp();
+    const ip = tsIp || getLocalIp();
+    url = `http://${ip}:${relay.port}`;
+    log(`${tsIp ? 'Tailscale' : 'Local'} URL: ${url}`);
   }
 
   // Step 4: Output URL for notification (caller sends to Telegram)
