@@ -1,94 +1,92 @@
 ---
 name: captcha-relay
-description: Human-in-the-loop CAPTCHA solving via Telegram. Use when the browser hits a CAPTCHA (reCAPTCHA, hCaptcha, Turnstile) during automation. Screenshots the challenge, overlays a numbered grid, sends to a human via Telegram inline buttons, waits for their response, and injects the answer back into the page. Triggers on CAPTCHA detection, blocked form submissions, or explicit "solve captcha" requests.
+description: "Human-in-the-loop CAPTCHA solving via token relay. When the browser hits a CAPTCHA (reCAPTCHA v2, hCaptcha, Turnstile), extracts the sitekey, serves a relay page with the real widget, sends the human a link, captures the solved token, and injects it back into the browser via CDP."
 ---
 
-# CAPTCHA Relay
+# CAPTCHA Relay v2
 
-Solve CAPTCHAs by relaying them to a human via Telegram.
+Solve CAPTCHAs by relaying them to a human via a token relay page.
+
+## How It Works
+
+1. Detects CAPTCHA type + sitekey from the browser page via CDP
+2. Starts a local HTTP server serving the real CAPTCHA widget
+3. Creates a tunnel (localtunnel or cloudflared) for phone access
+4. Human opens URL on phone, solves the CAPTCHA natively
+5. Token POSTed back to relay server
+6. Token injected into the automated browser via CDP
 
 ## Quick Start
 
-When a CAPTCHA is detected on a page:
-
 ```bash
-cd /home/clanky/.openclaw/workspace/captcha-relay
-node solve.js --inject
+cd /home/clanky/.openclaw/workspace/skills/captcha-relay
+npm install   # ws, sharp
+node index.js
 ```
 
-This single command:
-1. Connects to Chrome via CDP (port 18800)
-2. Screenshots the page silently
-3. Detects the CAPTCHA grid (type, dimensions, prompt)
-4. Crops and annotates with numbered cell overlay
-5. Sends to Telegram with inline tap-to-select buttons
-6. Waits for human response (tap cells + Submit)
-7. Injects clicks into the CAPTCHA and hits Verify
+Outputs JSON events to stdout:
+- `{"event": "ready", "relayUrl": "https://...", ...}` — send this URL to human
+- `{"event": "solved", "token": "...", ...}` — CAPTCHA solved and injected
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| `--inject` | Also click cells + verify after getting answer |
-| `--no-buttons` | Use text reply instead of inline buttons |
+| `--no-inject` | Return token without injecting into browser |
+| `--screenshot` | Use screenshot fallback instead of token relay |
+| `--no-tunnel` | Skip tunnel, use local IP only |
 | `--timeout N` | Timeout in seconds (default: 120) |
-| `--input FILE` | Use pre-made input JSON instead of CDP auto-detect |
+| `--cdp-port N` | Chrome DevTools Protocol port (default: 18800) |
 
-## Manual Mode
+## Module API
 
-If CDP auto-detect fails, write input JSON and use `--input`:
+```js
+const { solveCaptcha } = require('./index');
 
-```json
-{
-  "screenshotPath": "/path/to/screenshot.png",
-  "gridClip": { "x": 90, "y": 209, "w": 390, "h": 390 },
-  "prompt": "Select all images with cars",
-  "rows": 3,
-  "cols": 3
-}
+const result = await solveCaptcha({
+  cdpPort: 18800,
+  timeout: 120000,
+  inject: true,
+  useTunnel: true,
+});
+// result.relayUrl — URL to send to human
+// result.token — solved token
+// result.solved — true
 ```
 
-```bash
-node solve.js --input /tmp/captcha-input.json
-```
+You can also pass `type`, `sitekey`, and `pageUrl` to skip auto-detection.
 
-## Output
+## Tunneling Options
 
-stdout returns JSON:
-```json
-{"cells": [1, 4, 5, 6], "skipped": false}
-```
+| Method | Pros | Cons |
+|--------|------|------|
+| **localtunnel** (default) | Free, no install, works anywhere | Splash page on first visit |
+| **cloudflared** | Fast, reliable URLs | Heavy binary, too much for constrained machines |
+| **Tailscale** (recommended for production) | No tunnel needed, always-on, no splash | Requires setup on both devices |
+| **Local IP** (fallback) | No dependencies | LAN only |
 
-Parse this to inject manually if not using `--inject`.
+See `TAILSCALE.md` for Tailscale setup instructions.
 
-## Manual Injection (without --inject)
+## Token File
 
-After getting cells from solve.js, inject via browser eval:
+When a token is received, it's written to `/tmp/captcha-relay-token.txt` for external consumers.
 
-```javascript
-// cells = [1, 4, 5, 6] (1-indexed)
-const bf = document.querySelector('iframe[src*="recaptcha/api2/bframe"]');
-const doc = bf.contentDocument;
-const tds = doc.querySelectorAll('td[role="button"]');
-cells.forEach(c => tds[c - 1].click());
-doc.querySelector('#recaptcha-verify-button').click();
-```
+## Tested
 
-## Supported CAPTCHAs
-
-- ✅ reCAPTCHA v2 (image grid — 3x3 and 4x4)
-- 🔜 hCaptcha
-- 🔜 Cloudflare Turnstile
+- ✅ reCAPTCHA v2 token relay — works with Google's demo site
+- ✅ localtunnel tunneling
+- ⚠️ hCaptcha / Turnstile — should work but not yet tested end-to-end
 
 ## Requirements
 
-- Chrome running with `--remote-debugging-port=18800`
-- Telegram bot configured in OpenClaw
-- `npm install` in the captcha-relay directory (sharp, ws)
+- Chrome/Chromium with `--remote-debugging-port=18800`
+- Node.js + `npm install` (ws, sharp)
+- For tunneling: `npx localtunnel` (default) or `cloudflared` binary
 
-## Troubleshooting
+## Agent Workflow
 
-- **"No CAPTCHA grid detected"**: The challenge may have expired or the iframe structure changed. Retrigger the CAPTCHA checkbox and try again.
-- **Timeout**: Human didn't respond in time. Increase with `--timeout 180`.
-- **"Please try again"**: Google rejected the answer. Run solve.js again — it will detect the new challenge.
-- **CDP connection failed**: Verify Chrome is running with `curl http://127.0.0.1:18800/json/version`.
+1. Detect CAPTCHA during browser automation
+2. Run `solveCaptcha()` or `node index.js`
+3. Send the relay URL to human via Telegram
+4. Wait for solved event
+5. Continue automation

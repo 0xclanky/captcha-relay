@@ -1,0 +1,13 @@
+{
+  "name": "captcha-relay",
+  "version": "2.0.0",
+  "description": "Human-in-the-loop CAPTCHA solving via token relay",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "sharp": "^0.33.2"
+  }
+}
